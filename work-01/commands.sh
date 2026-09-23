@@ -48,3 +48,22 @@ yc compute instance create \
 # публичный адрес машины
 yc compute instance get "$PREFIX-web-1" --format json \
   | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address'
+
+# --- Сведения о ресурсах ---
+yc compute instance list --format json \
+  | jq -r '.[] | "\(.name)\t\(.status)\t\(.network_interfaces[0].primary_v4_address.one_to_one_nat.address // "нет")"'
+# только свои машины
+yc compute instance list --format json | jq -r ".[] | select(.name | startswith(\"$PREFIX\")) | .name"
+# остановленные машины (прерываемая ВМ могла быть остановлена облаком)
+yc compute instance list --format json | jq -r '.[] | select(.status != "RUNNING") | .name'
+
+# --- Уборка: сначала машины, потом подсеть, потом сеть ---
+yc compute instance delete "$PREFIX-web-1"
+yc compute instance delete "$PREFIX-web-manual"
+yc vpc subnet delete "$PREFIX-subnet"
+yc vpc network delete "$PREFIX-net"
+
+# --- Проверка, что ничего не осталось ---
+yc compute instance list
+yc vpc network list
+yc compute disk list
