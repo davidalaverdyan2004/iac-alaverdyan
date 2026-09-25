@@ -1,0 +1,24 @@
+#cloud-config
+# по этой строке cloud-init понимает, что перед ним конфигурация, а не текст
+
+users:
+  - name: student                          # логин для входа по SSH
+    groups: sudo                           # группа sudo даёт права администратора
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']       # sudo без пароля: пароля у пользователя нет
+    ssh_authorized_keys:
+      - ${SSH_KEY}
+
+package_update: true                       # обновить список пакетов перед установкой
+
+packages:
+  - nginx                                  # ставится при первой загрузке машины
+
+runcmd:
+  # меняем порт в конфигурации nginx: сначала IPv4, потом IPv6
+  - sed -i 's/listen 80 default_server;/listen ${APP_PORT} default_server;/' /etc/nginx/sites-available/default
+  - sed -i 's/listen \[::\]:80 default_server;/listen [::]:${APP_PORT} default_server;/' /etc/nginx/sites-available/default
+  # страницу перезаписываем целиком: слово варианта и имя машины в одной строке
+  - bash -c 'echo "${GREETING} on $(hostname)" > /var/www/html/index.nginx-debian.html'
+  - nginx -t                               # проверка конфигурации
+  - systemctl restart nginx                # без перезапуска nginx остался бы на порту 80
