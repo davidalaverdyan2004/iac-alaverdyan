@@ -1,22 +1,45 @@
 #!/usr/bin/env bash
-# Практика 2, вариант 04 (аудиторная часть): удаляет стенд в порядке,
-# обратном созданию.
+# Практика 2, вариант 04: удаляет всё, что создал create.sh,
+# в порядке, обратном созданию. Отрабатывает на любом состоянии стенда:
+# ресурс, которого уже нет, пропускается, а не роняет скрипт.
 set -euo pipefail                  # стоп на первой ошибке и на пустой переменной
 
 PREFIX=alaverdyan-04
-VM_COUNT=3
+
+# удалить ресурс, только если он есть
+# $1 — группа команд yc (например, "compute instance"), $2 — имя ресурса
+remove() {
+  local kind="$1" name="$2"
+  # shellcheck disable=SC2086      # $kind намеренно разбивается на слова
+  if yc $kind get --name "$name" >/dev/null 2>&1; then
+    echo "==> удаляю $kind $name"
+    # shellcheck disable=SC2086
+    yc $kind delete --name "$name"
+  else
+    echo "    $kind $name: нет, пропускаю"
+  fi
+}
 
 # сначала то, что ссылается на другие ресурсы
-yc load-balancer network-load-balancer delete "$PREFIX-lb"
-yc load-balancer target-group delete "$PREFIX-tg"
+remove "load-balancer network-load-balancer" "$PREFIX-lb"
+remove "load-balancer target-group" "$PREFIX-tg"
 
-for i in $(seq 1 "$VM_COUNT"); do
-  yc compute instance delete "$PREFIX-app-$i"
+# машины не считаем, а спрашиваем облако: всё, что начинается с префикса
+VMS=$(yc compute instance list --format json \
+  | jq -r --arg p "$PREFIX-app-" '.[] | select(.name | startswith($p)) | .name')
+for vm in $VMS; do
+  remove "compute instance" "$vm"
 done
 
-# диск создан с --auto-delete=false и сам вместе с машиной не удаляется
-yc compute disk delete "$PREFIX-data"
+# диск подключён без автоудаления и переживает машину
+remove "compute disk" "$PREFIX-data"
 
-yc vpc subnet delete "$PREFIX-subnet-a"
-yc vpc subnet delete "$PREFIX-subnet-b"
-yc vpc network delete "$PREFIX-net"
+remove "vpc subnet" "$PREFIX-subnet-a"
+remove "vpc subnet" "$PREFIX-subnet-b"
+remove "vpc network" "$PREFIX-net"
+
+echo "==> что осталось в каталоге"
+echo "-- машины:";         yc compute instance list
+echo "-- диски:";          yc compute disk list
+echo "-- сети:";           yc vpc network list
+echo "-- балансировщики:"; yc load-balancer network-load-balancer list
